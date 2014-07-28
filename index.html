@@ -1,0 +1,232 @@
+<html>
+  <head>
+    <title>Pivotal Kanban</title>
+    <script src='http://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js' type='text/javascript'></script>
+    <script src='http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js' type='text/javascript'></script>
+    <script src='http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js' type='text/javascript'></script>
+    <link href='http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css' media="all" rel="stylesheet" type="text/css" />
+    <style type="text/css">
+        body {
+            margin: 0px;
+            padding: 0px;
+            background-color: rgb(35, 113, 159);
+        }
+
+        /* Bootstrap Hack for 5 columns */
+        .col-xs-5ths, .col-sm-5ths, .col-md-5ths, .col-lg-5ths { position: relative; min-height: 1px; padding-right: 5px; padding-left: 5px; }
+        .col-xs-5ths { width: 20%; float: left; }
+        @media (min-width: 768px)  { .col-sm-5ths { width: 20%; float: left; }}
+        @media (min-width: 992px)  { .col-md-5ths { width: 20%; float: left; }}
+        @media (min-width: 1200px) { .col-lg-5ths { width: 20%; float: left; }}
+
+        h1 {
+            font-size: 18px;
+            color: #333333;
+            padding: 5px;
+            text-align: center;
+            font-weight: normal;
+            margin: 0;
+            position: absolute;
+            background-color: #e3e3e3;
+            border-radius: 5px;
+        }
+
+        [class*="pivotal-"] {
+            padding-top: 50px;
+            height: 100%;
+        }
+
+        #owner {
+            z-index: 999;
+            position: absolute;
+            top: 15px;
+            right: 5px;
+        }
+
+        #projects {
+            z-index: 999;
+            position: absolute;
+            top: 5px;
+            left: 0px;
+            margin: 0 0 0 5px;
+            height: 35px;
+            padding: 0;
+        }
+
+        #projects li.project {
+            float: left;
+            list-style-type: none;
+            padding: 0 15px;
+            margin-right: 5px;
+            line-height: 35px;
+            border: 2px solid black;
+            cursor: pointer;
+        }
+
+        .stories {
+            padding: 30px 5;
+            height: 100%;
+            overflow: auto;
+            background-color: #e3e3e3;
+            border-radius: 5px;
+        }
+
+        .stories a {
+            color: black;
+            text-decoration: none;
+        }
+
+        .stories a:hover .story {
+            background-color: #dedede;
+        }
+
+        .story {
+            padding: 5px;
+            background-color: white;
+            margin-bottom: 5px;
+            border-radius: 5px;
+        }
+
+        .story-name {
+        }
+
+        .story-owner {
+            color: #999999;
+        }
+    </style>
+
+  </head>
+  <body>
+    <ul id='projects'></ul>
+    <select id='owner'></select>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Unstarted, Started, Finished, Delivered, Completed -->
+            <div class="col-md-5ths col-xs-6 pivotal-unstarted">
+                <h1>Unstarted</h1>
+                <div class='stories'>
+                </div>
+            </div>
+            <div class="col-md-5ths col-xs-6 pivotal-started">
+                <h1>Started</h1>
+                <div class='stories'></div>
+            </div>
+            <div class="col-md-5ths col-xs-6 pivotal-finished">
+                <h1>Finished</h1>
+                <div class='stories'></div>
+            </div>
+            <div class="col-md-5ths col-xs-6 pivotal-delivered">
+                <h1>Delivered</h1>
+                <div class='stories'></div>
+            </div>
+            <div class="col-md-5ths col-xs-6 pivotal-accepted">
+                <h1>Completed</h1>
+                <div class='stories'></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        var token = window.location.href.match(/token=([A-Za-z0-9]{32})/)[1];
+        if(token !== undefined) {
+            var colors = ['sandybrown', 'tomato', 'steelblue', 'gold', 'violet', 'brown'];
+            var projects = [];
+            var projectColors = {};
+            var owners = {};
+            var owners_by_name = {};
+            var lastWeek = (new Date()).getTime() - 24*60*60*7*1000;
+            var $owners = $('#owner');
+            var $projects = $('#projects');
+            var $stories = {
+                unstarted: $('.pivotal-unstarted .stories'),
+                started: $('.pivotal-started .stories'),
+                finished: $('.pivotal-finished .stories'),
+                delivered: $('.pivotal-delivered .stories'),
+                accepted: $('.pivotal-accepted .stories')
+            };
+
+            var pivotalRequest = function(url, callback) {
+                var url = 'https://www.pivotaltracker.com/services/v5' + url;
+                $.ajax({
+                    url: url,
+                    beforeSend: function(xhr) {
+                        xhr.setRequestHeader('X-TrackerToken', token);
+                    }
+                }).done(callback);
+            };
+
+            var addStoryToDOM = function(story) {
+                var $container = $stories[story.current_state];
+                var color = projectColors[story.project_id];
+                var owner = owners[story.owned_by_id] || '-';
+                owners_by_name[owner] = story.owned_by_id;
+                $container.append('<a href="' + story.url + '" target="_blank"><div class="story" style="border-left: 10px solid ' + color + '" data-owner-id="' + story.owned_by_id + '" data-project-id="' + story.project_id + '"><div class="story-name">' + story.name + '</div><div class="story-owner">' + owner + '</div></div></a>');
+            };
+
+            var updateOwners = function() {
+                $owners.html('<option value="-1">-- Everyone --</option>')
+                _(owners_by_name).each(function(id, name) {
+                    $owners.append('<option value="' + id + '">' + name + '</option>');
+                });
+            };
+
+            $owners.change(function(e) {
+                var owner_id = $(e.target).val();
+                if(owner_id > 0) {
+                    $('.story').hide();
+                    $('.story[data-owner-id="' + owner_id + '"]').show();
+                } else {
+                    $('.story').show();
+                }
+            });
+
+            // Get Projects
+            pivotalRequest('/projects', function(response) {
+                _(response).each(function(project, i) {
+                    projects.push({
+                        name: project.name,
+                        id: project.id
+                    });
+                    projectColors[project.id] = colors[i]
+                    $project = $('<li class="project" data-id="' + project.id + '" style="background-color: ' + colors[i] + '">' + project.name + '</li>');
+                    $projects.append($project);
+                    $project.click(function(e) {
+                        project_id = $(e.target).data('id');
+                        $('div[data-project-id="' + project_id + '"]').toggle();
+                    });
+
+                    // Get Owners
+                    pivotalRequest('/projects/' + project.id + '/memberships', function(members) {
+                        _(members).each(function(member) {
+                            owners[member.person.id] = member.person.name;
+                        });
+
+                        // Get stories
+                        pivotalRequest('/projects/' + project.id + '/stories?filter=state:started,finished,delivered,unstarted,accepted', function(stories) {
+                            _(stories).each(function(story) {
+                                addStoryToDOM(story);
+                            });
+
+                            // Update select box
+                            updateOwners();
+                        });
+
+                        // Get accepted stories
+                        pivotalRequest('/projects/' + project.id + '/stories?accepted_after=' + lastWeek, function(stories) {
+                            _(stories).each(function(story) {
+                                addStoryToDOM(story);
+                            });
+
+                            // Update select box
+                            updateOwners();
+                        });
+                    })
+                });
+            });
+        } else {
+            alert('Missing token.');
+        }
+
+    </script>
+  </body>
+</html>
